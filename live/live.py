@@ -7,7 +7,7 @@
 用法: ../.venv/bin/python live.py [--contact wxid|备注|昵称] [--interval 2] [--port 8765] [--test-fire]
 每联系人的长期记忆放 ~/.wechat_live/memory/<wxid>.md（可选，取其 ## 五/六 章）
 """
-import sys, os, json, time, argparse, threading, subprocess, collections, re, difflib, urllib.request
+import sys, os, json, time, argparse, threading, subprocess, collections, re, difflib, urllib.request, urllib.error
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
@@ -414,7 +414,13 @@ def main():
                         + (f"\n\n## 参谋风格（优先级低于守则）\n{load_style(style['key'])}" if load_style(style['key']) else ''))
                 t0 = time.time()
                 try:
-                    sug = parse_json(chat(url, model, SYSTEM, user))
+                    try:
+                        sug = parse_json(chat(url, model, SYSTEM, user))
+                    except (urllib.error.URLError, TimeoutError, OSError) as e:     # 当前端点掉线：按配置顺序重新探活，换一口再试一次
+                        print(f'[model] {url} 失败 {type(e).__name__}: {e}，重新探活端点', flush=True)
+                        url, model = pick_endpoint(); state['model'] = model
+                        print(f'[model] 切到 {url} ({model})', flush=True)
+                        sug = parse_json(chat(url, model, SYSTEM, user))
                     sug['elapsed'] = round(time.time() - t0, 1); sug['for_ids'] = [m.local_id for m in sess.pending]; sug['for_ts'] = [m.timestamp for m in sess.pending]; sug['style'] = style['key']
                     sess.fb.on_suggestion(sug)
                     state['suggestion'] = sug; state['updated'] = datetime.now(BJ).strftime('%H:%M:%S'); state['status'] = '建议已更新，继续监听'; state['error'] = None
